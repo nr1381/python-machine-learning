@@ -1,0 +1,77 @@
+###インプットデータ取得
+http://ai.stanford.edu/~amaas/data/sentiment/
+
+###インプットデータ整形 
+###取得したデータをfor文でpositeve,negativeにラベル付け
+###逐次ファイルを展開している
+import pyprind
+import pandas as pd
+import os
+basepath = '/Users/ryonakay/Downloads/aclImdb'
+labels = {'pos':1, 'neg':0}
+pbar = pyprind.ProgBar(50000)
+df = pd.DataFrame()
+for s in ('test', 'train'):
+    for l in ('pos', 'neg'):
+        path = os.path.join(basepath, s, l)
+        for file in os.listdir(path):
+            with open(os.path.join(path, file), 'r', encoding='utf-8') as infile:
+                txt = infile.read()
+            df = df.append([[txt, labels[l]]], ignore_index=True)
+            pbar.update()
+df.columns = ['review', 'sentiment']
+
+###DataFrameをランダムシャッフルし、対象のファイルにcsv形式で保存
+import numpy as np
+np.random.seed(0)
+df = df.reindex(np.random.permutation(df.index))
+df.to_csv('movie_data.csv', index=False, encoding='utf-8')
+
+###tfを生成する
+import numpy as np
+from sklearn.feature_extraction.text import CountVectorizer
+count = CountVectorizer()
+docs = np.array(['The sun is shining', 'The weather is sweet', 'The sun is shining, the weathre is sweet, and one and one is two'])
+bag = count.fit_transform(docs)
+print(count.vocabulary_)
+print(bag.toarray())
+
+###idfを生成する
+
+
+
+### ワードステミング
+### 単語を原形に変換するアルゴリズム
+### runningをrunにするなど
+### 最も単純で古いアルゴリズムがPorter stemmingでNLTKライブラリで実装されている
+from nltk.stem.porter import PorterStemmer
+porter = PorterStemmer()
+def tokenizer_porter(text):
+    return [porter.stem(word) for word in text.split()]
+tokenizer_porter('runners like running and thus they run')
+
+
+### ストップワード除去
+### ストップワードとは有益となる情報を全く含んでいないとみなされるものでis,and,has,likeなどがある
+### TF-IDFの場合頻繁に出現するものの重みを減らす効果があるため、ストップワード除去はあまり役には立たない
+### こちらもNLTKライブラリで提供されている(127個)
+import nltk
+nltk.download('stopwords')
+from nltk.corpus import stopwords
+stop = stopwords.words('english')
+[w for w in tokenizer_porter('a runner likes runnning and runs alot')[-10:] if w not in stop]
+
+### 文書をロジスティック回帰で回帰
+### Fitting 5 folds for each of 48 candidates, totalling 240 fits つまり240候補を毎回学習する　そのため40分ほどかかる
+from sklearn.model_selection import GridSearchCV
+from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LogisticRegression
+from sklearn.feature_extraction.text import TfidfVectorizer
+tfidf = TfidfVectorizer(strip_accents=None,lowercase=False,preprocessor=None)
+param_grid = [{'vect__ngram_range': [(1,1)], 'vect__stop_words': [stop, None], 'vect__tokenizer': [tokenizer, tokenizer_porter], 'clf__penalty': ['l1', 'l2'], 'clf__C': [1.0, 10.0, 100.0]}, {'vect__ngram_range': [(1,1)], 'vect__stop_words': [stop, None], 'vect__tokenizer': [tokenizer, tokenizer_porter], 'vect__use_idf': [False], 'vect__norm': [None], 'clf__penalty': ['l1', 'l2'], 'clf__C': [1.0, 10.0, 100.0]}]
+lr_tfidf = Pipeline([('vect', tfidf), ('clf', LogisticRegression(random_state=0))])
+gs_lr_tfird = GridSearchCV(lr_tfidf, param_grid, scoring='accuracy', cv=5, verbose=1, n_jobs=1)
+gs_lr_tfidf.fit(X_train, y_train)
+
+
+
